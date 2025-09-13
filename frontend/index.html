@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Unravel AI: Travel Documents Made Simple</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.14.305/pdf.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    h1 { color: #2c3e50; }
+    h2 { margin-top: 20px; }
+    textarea, select, button { margin-top: 10px; display: block; }
+    #summary-output { white-space: pre-wrap; margin-top: 15px; }
+  </style>
+</head>
+<body>
+  <h1>Unravel AI: Travel Documents Made Simple</h1>
+
+  <!-- Upload Section -->
+  <h2>1. Upload a Document</h2>
+  <input type="file" id="document-upload" accept=".pdf,.txt" />
+  <p id="upload-status"></p>
+
+  <!-- Language Selection -->
+  <h2>2. Select Language</h2>
+  <select id="language">
+    <option value="en-US">English</option>
+    <option value="hi-IN">Hindi</option>
+    <option value="fr-FR">French</option>
+    <option value="es-ES">Spanish</option>
+  </select>
+  <button id="generate-summary">Generate Summary</button>
+  <button id="explain-audio">Explain & Play Audio</button>
+
+  <!-- Output -->
+  <h2>Summary / Explanation</h2>
+  <div id="summary-output"></div>
+  <audio id="audio-player" controls style="margin-top: 10px;"></audio>
+
+  <!-- Chatbot -->
+  <h2>3. Ask a Question</h2>
+  <textarea id="question" placeholder="e.g., 'What is Section 7 about?'" rows="2" cols="50"></textarea>
+  <button id="ask-btn">Send</button>
+  <div id="chat-response"></div>
+
+  <script>
+    const API_ENDPOINT = "http://localhost:8080"; // Use local backend
+    let documentContent = "";
+
+    async function extractPdfText(file) {
+      const pdfData = new Uint8Array(await file.arrayBuffer());
+      const pdf = await pdfjsLib.getDocument({ data: pdfData }).promise;
+      let text = "";
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        text += content.items.map((s) => s.str).join(" ") + "\n";
+      }
+      return text;
+    }
+
+    document.getElementById("document-upload").addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+      if (file) {
+        document.getElementById("upload-status").textContent = "Processing...";
+        try {
+          if (file.type === "application/pdf") {
+            documentContent = await extractPdfText(file);
+          } else {
+            const reader = new FileReader();
+            reader.onload = (e) => { documentContent = e.target.result; };
+            reader.readAsText(file);
+            await new Promise(r => reader.onloadend = r);
+          }
+          document.getElementById("upload-status").textContent = "Document uploaded successfully!";
+          document.getElementById("summary-output").textContent = "Click 'Generate Summary' or 'Explain & Play Audio'.";
+        } catch (err) {
+          document.getElementById("upload-status").textContent = "Failed to read document.";
+          console.error(err);
+        }
+      }
+    });
+
+    document.getElementById("generate-summary").addEventListener("click", async () => {
+      if (!documentContent) return alert("Please upload a document first!");
+      const language = document.getElementById("language").value;
+      document.getElementById("summary-output").textContent = "Generating summary...";
+      try {
+        const res = await fetch(`${API_ENDPOINT}/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ document: documentContent, language })
+        });
+        const data = await res.json();
+        document.getElementById("summary-output").textContent = data.summary || data.response || "Failed to generate summary.";
+      } catch (err) {
+        document.getElementById("summary-output").textContent = "Error connecting to backend.";
+        console.error(err);
+      }
+    });
+
+    document.getElementById("explain-audio").addEventListener("click", async () => {
+      if (!documentContent) return alert("Please upload a document first!");
+      const language = document.getElementById("language").value;
+      document.getElementById("summary-output").textContent = "Generating explanation & audio...";
+      try {
+        const res = await fetch(`${API_ENDPOINT}/explain?audio=true`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ document: documentContent, language })
+        });
+        const data = await res.json();
+        document.getElementById("summary-output").textContent = data.summary || data.response || "Failed to generate explanation.";
+
+        if (data.audio) {
+          const audioPlayer = document.getElementById("audio-player");
+          const audioBlob = new Blob(
+            [Uint8Array.from(atob(data.audio), c => c.charCodeAt(0))],
+            { type: "audio/mp3" }
+          );
+          audioPlayer.src = URL.createObjectURL(audioBlob);
+          audioPlayer.play().catch(e => console.error("Audio playback failed", e));
+        }
+      } catch (err) {
+        document.getElementById("summary-output").textContent = "Error connecting to backend.";
+        console.error(err);
+      }
+    });
+
+    document.getElementById("ask-btn").addEventListener("click", async () => {
+      const question = document.getElementById("question").value;
+      if (!question || !documentContent) return alert("Please upload a document and enter a question!");
+      document.getElementById("chat-response").textContent = "Thinking...";
+      try {
+        const res = await fetch(`${API_ENDPOINT}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ document: documentContent, question })
+        });
+        const data = await res.json();
+        document.getElementById("chat-response").textContent = data.response || "Failed to answer.";
+      } catch (err) {
+        document.getElementById("chat-response").textContent = "Error connecting to backend.";
+        console.error(err);
+      }
+    });
+  </script>
+</body>
+</html>
